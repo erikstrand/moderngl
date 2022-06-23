@@ -22,6 +22,7 @@ class InstancedCrates(Example):
         # Offscreen render target
         self.offscreen_rgba = self.ctx.texture(self.wnd.buffer_size, 4, dtype="f1")
         self.offscreen_instance_id = self.ctx.texture(self.wnd.buffer_size, 1, dtype="i4")
+        self.offscreen_instance_id.filter == (moderngl.NEAREST, moderngl.NEAREST)
         self.offscreen_depth = self.ctx.depth_texture(self.wnd.buffer_size)
         self.offscreen = self.ctx.framebuffer(
             color_attachments=[
