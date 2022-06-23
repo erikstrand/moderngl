@@ -21,7 +21,7 @@ class InstancedCrates(Example):
 
         # Offscreen render target
         self.offscreen_rgba = self.ctx.texture(self.wnd.buffer_size, 4, dtype="f1")
-        self.offscreen_instance_id = self.ctx.texture(self.wnd.buffer_size, 1, dtype="f4")
+        self.offscreen_instance_id = self.ctx.texture(self.wnd.buffer_size, 1, dtype="i4")
         self.offscreen_depth = self.ctx.depth_texture(self.wnd.buffer_size)
         self.offscreen = self.ctx.framebuffer(
             color_attachments=[
@@ -47,7 +47,7 @@ class InstancedCrates(Example):
                 out vec3 v_vert;
                 out vec3 v_norm;
                 out vec2 v_text;
-                flat out float v_instance_id;
+                flat out int v_instance_id;
 
                 void main() {
                     gl_Position = Mvp * vec4(in_position + in_move, 1.0);
@@ -55,7 +55,7 @@ class InstancedCrates(Example):
                     v_norm = in_normal;
                     v_text = in_texcoord_0;
                     // We add one so that 0 only appears in the background.
-                    v_instance_id = float(gl_InstanceID + 1);
+                    v_instance_id = gl_InstanceID + 1;
                 }
             ''',
             fragment_shader='''
@@ -67,10 +67,10 @@ class InstancedCrates(Example):
                 in vec3 v_vert;
                 in vec3 v_norm;
                 in vec2 v_text;
-                flat in float v_instance_id;
+                flat in int v_instance_id;
 
                 out vec4 f_color;
-                out float f_instance_id;
+                out int f_instance_id;
 
                 void main() {
                     float lum = clamp(dot(normalize(Light - v_vert), normalize(v_norm)), 0.0, 1.0) * 0.8 + 0.2;
@@ -116,7 +116,7 @@ class InstancedCrates(Example):
             vertex_shader="""
                 #version 330
 
-                uniform sampler2D instance_ids;
+                uniform isampler2D instance_ids;
                 uniform ivec2 texel_pos;
 
                 in vec3 in_position;
@@ -124,8 +124,7 @@ class InstancedCrates(Example):
                 out int instance_id;
 
                 void main() {
-                    float instance_id_f = texelFetch(instance_ids, texel_pos, 0).x;
-                    instance_id = int(instance_id_f);
+                    instance_id = texelFetch(instance_ids, texel_pos, 0).x;
                 }
             """,
             varyings=["instance_id"],
