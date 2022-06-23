@@ -2,6 +2,7 @@ import numpy as np
 from pyrr import Matrix44
 
 import moderngl
+import moderngl_window as mglw
 from ported._example import Example
 
 
@@ -16,6 +17,15 @@ class InstancedCrates(Example):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
+
+        # Offscreen render target
+        self.offscreen_rgba = self.ctx.texture(self.wnd.buffer_size, 4, dtype="f1")
+        self.offscreen_depth = self.ctx.depth_texture(self.wnd.buffer_size)
+        self.offscreen = self.ctx.framebuffer(
+            color_attachments=[self.offscreen_rgba],
+            depth_attachment=self.offscreen_depth,
+        )
+        self.quad_fs = mglw.geometry.quad_fs()
 
         self.prog = self.ctx.program(
             vertex_shader='''
@@ -59,6 +69,34 @@ class InstancedCrates(Example):
             ''',
         )
 
+        # This program renders our offscreen texture on a fullscreen quad.
+        self.texture_prog = self.ctx.program(
+            vertex_shader="""
+                #version 330
+
+                in vec3 in_position;
+                in vec2 in_texcoord_0;
+                out vec2 uv;
+
+                void main() {
+                    gl_Position = vec4(in_position, 1.0);
+                    uv = in_texcoord_0;
+                }
+            """,
+            fragment_shader="""
+                #version 330
+
+                uniform sampler2D texture0;
+                in vec2 uv;
+                out vec4 f_color;
+
+                void main() {
+                    f_color = texture(texture0, uv);
+                }
+            """
+        )
+        self.texture_prog["texture0"].value = 0
+
         self.mvp = self.prog['Mvp']
         self.light = self.prog['Light']
 
@@ -83,7 +121,6 @@ class InstancedCrates(Example):
 
     def render(self, time, frame_time):
         angle = time * 0.2
-        self.ctx.clear(1.0, 1.0, 1.0)
         self.ctx.enable(moderngl.DEPTH_TEST)
 
         camera_pos = (np.cos(angle) * 5.0, np.sin(angle) * 5.0, 2.0)
@@ -95,6 +132,9 @@ class InstancedCrates(Example):
             (0.0, 0.0, 1.0),
         )
 
+        self.offscreen.use()
+        self.offscreen.clear(1.0, 1.0, 1.0)
+
         self.mvp.write((proj * lookat).astype('f4'))
         self.light.value = camera_pos
 
@@ -102,9 +142,14 @@ class InstancedCrates(Example):
         coordinates = np.dstack([self.crate_x, self.crate_y, crate_z])
 
         self.instance_data.write(coordinates.astype('f4'))
-        self.texture.use()
+        self.texture.use(location=0)
         self.vao.render(instances=1024)
 
+        self.ctx.disable(moderngl.DEPTH_TEST)
+        self.ctx.screen.use()
+        self.ctx.screen.clear(1.0, 1.0, 1.0)
+        self.offscreen_rgba.use(location=0)
+        self.quad_fs.render(self.texture_prog)
 
 if __name__ == '__main__':
     InstancedCrates.run()
