@@ -1,5 +1,6 @@
 import numpy as np
 from pyrr import Matrix44
+import struct
 
 import moderngl
 import moderngl_window as mglw
@@ -20,9 +21,13 @@ class InstancedCrates(Example):
 
         # Offscreen render target
         self.offscreen_rgba = self.ctx.texture(self.wnd.buffer_size, 4, dtype="f1")
+        self.offscreen_instance_id = self.ctx.texture(self.wnd.buffer_size, 1, dtype="f4")
         self.offscreen_depth = self.ctx.depth_texture(self.wnd.buffer_size)
         self.offscreen = self.ctx.framebuffer(
-            color_attachments=[self.offscreen_rgba],
+            color_attachments=[
+                self.offscreen_rgba,
+                self.offscreen_instance_id,
+            ],
             depth_attachment=self.offscreen_depth,
         )
         self.quad_fs = mglw.geometry.quad_fs()
@@ -42,12 +47,15 @@ class InstancedCrates(Example):
                 out vec3 v_vert;
                 out vec3 v_norm;
                 out vec2 v_text;
+                flat out float v_instance_id;
 
                 void main() {
                     gl_Position = Mvp * vec4(in_position + in_move, 1.0);
                     v_vert = in_position + in_move;
                     v_norm = in_normal;
                     v_text = in_texcoord_0;
+                    // We add one so that 0 only appears in the background.
+                    v_instance_id = float(gl_InstanceID + 1);
                 }
             ''',
             fragment_shader='''
@@ -59,12 +67,15 @@ class InstancedCrates(Example):
                 in vec3 v_vert;
                 in vec3 v_norm;
                 in vec2 v_text;
+                flat in float v_instance_id;
 
                 out vec4 f_color;
+                out float f_instance_id;
 
                 void main() {
                     float lum = clamp(dot(normalize(Light - v_vert), normalize(v_norm)), 0.0, 1.0) * 0.8 + 0.2;
                     f_color = vec4(texture(Texture, v_text).rgb * lum, 1.0);
+                    f_instance_id = v_instance_id;
                 }
             ''',
         )
@@ -92,10 +103,36 @@ class InstancedCrates(Example):
 
                 void main() {
                     f_color = texture(texture0, uv);
+                    if (f_color.a == 0.0) {
+                        discard;
+                    }
                 }
             """
         )
         self.texture_prog["texture0"].value = 0
+
+        # This program retrieves the instance id of the create (if any) under the cursor.
+        self.picker_prog = self.ctx.program(
+            vertex_shader="""
+                #version 330
+
+                uniform sampler2D instance_ids;
+                uniform ivec2 texel_pos;
+
+                in vec3 in_position;
+
+                out int instance_id;
+
+                void main() {
+                    float instance_id_f = texelFetch(instance_ids, texel_pos, 0).x;
+                    instance_id = int(instance_id_f);
+                }
+            """,
+            varyings=["instance_id"],
+        )
+        self.picker_prog["instance_ids"].value = 0;
+        self.picker_output = self.ctx.buffer(reserve=4) # the output is a single int
+        self.picker_vao = mglw.opengl.vao.VAO(mode=moderngl.POINTS)
 
         self.mvp = self.prog['Mvp']
         self.light = self.prog['Light']
@@ -133,7 +170,7 @@ class InstancedCrates(Example):
         )
 
         self.offscreen.use()
-        self.offscreen.clear(1.0, 1.0, 1.0)
+        self.offscreen.clear(0.0, 0.0, 0.0)
 
         self.mvp.write((proj * lookat).astype('f4'))
         self.light.value = camera_pos
@@ -150,6 +187,27 @@ class InstancedCrates(Example):
         self.ctx.screen.clear(1.0, 1.0, 1.0)
         self.offscreen_rgba.use(location=0)
         self.quad_fs.render(self.texture_prog)
+
+    def mouse_press_event(self, x, y, button):
+        super().mouse_press_event(x, y, button)
+
+        # Mouse coordinates start in the upper left, but the pixel positions in our instance
+        # texture start in the lower left.
+        pos = (
+            int(x * self.wnd.pixel_ratio),
+            int(self.wnd.buffer_height - (y * self.wnd.pixel_ratio))
+        )
+        #print(f"screen coords ({x}, {y})")
+        #print(f"texture coords {pos}")
+        self.picker_prog["texel_pos"].value = pos
+        self.offscreen_instance_id.use(location=0)
+        self.picker_vao.transform(self.picker_prog, self.picker_output, vertices=1)
+        instance_id = struct.unpack("1i", self.picker_output.read())[0]
+        if instance_id > 0:
+            print(f"you clicked crate instance {instance_id - 1}")
+        else:
+            print(f"you clicked on the background")
+
 
 if __name__ == '__main__':
     InstancedCrates.run()
