@@ -112,28 +112,6 @@ class InstancedCrates(Example):
         )
         self.texture_prog["texture0"].value = 0
 
-        # This program retrieves the instance id of the create (if any) under the cursor.
-        self.picker_prog = self.ctx.program(
-            vertex_shader="""
-                #version 330
-
-                uniform isampler2D instance_ids;
-                uniform ivec2 texel_pos;
-
-                in vec3 in_position;
-
-                out int instance_id;
-
-                void main() {
-                    instance_id = texelFetch(instance_ids, texel_pos, 0).x;
-                }
-            """,
-            varyings=["instance_id"],
-        )
-        self.picker_prog["instance_ids"].value = 0;
-        self.picker_output = self.ctx.buffer(reserve=4) # the output is a single int
-        self.picker_vao = mglw.opengl.vao.VAO(mode=moderngl.POINTS)
-
         self.mvp = self.prog['Mvp']
         self.light = self.prog['Light']
 
@@ -191,18 +169,18 @@ class InstancedCrates(Example):
     def mouse_press_event(self, x, y, button):
         super().mouse_press_event(x, y, button)
 
-        # Mouse coordinates start in the upper left, but the pixel positions in our instance
-        # texture start in the lower left.
-        pos = (
-            int(x * self.wnd.pixel_ratio),
-            int(self.wnd.buffer_height - (y * self.wnd.pixel_ratio))
+        # Mouse coordinates start in the upper left; texture coordinates start in the lower left.
+        tx = int(x * self.wnd.pixel_ratio)
+        ty = int(self.wnd.buffer_height - (y * self.wnd.pixel_ratio))
+        #print(f"screen coords {x}, {y}")
+        #print(f"texture coords {tx}, {ty}")
+        data = self.offscreen.read(
+            viewport=(tx, ty, 1, 1),
+            components=1,
+            attachment=1,
+            dtype="i4"
         )
-        #print(f"screen coords ({x}, {y})")
-        #print(f"texture coords {pos}")
-        self.picker_prog["texel_pos"].value = pos
-        self.offscreen_instance_id.use(location=0)
-        self.picker_vao.transform(self.picker_prog, self.picker_output, vertices=1)
-        instance_id = struct.unpack("1i", self.picker_output.read())[0]
+        instance_id = struct.unpack("1i", data)[0]
         if instance_id > 0:
             print(f"you clicked crate instance {instance_id - 1}")
         else:
